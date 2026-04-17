@@ -1,0 +1,28 @@
+# Staging environment overrides.
+# Copy to staging.tfvars and fill in secrets, then:
+#   terraform workspace new staging   # (once)
+#   terraform workspace select staging
+#   terraform apply -var-file=staging.tfvars
+
+environment          = "staging"
+domain               = "staging.kwgrowth.com"
+
+# Secrets — fill these in. Do NOT commit the .tfvars file.
+db_password          = ""
+app_db_password      = ""
+jwt_secret           = ""
+app_secret           = ""
+
+# Optional — leave blank to disable / mock
+sentry_dsn           = ""
+tap_secret_key       = ""
+tap_webhook_secret   = ""
+whatsapp_token       = ""
+whatsapp_phone_number_id = ""
+anthropic_api_key    = ""
+
+# Smaller sizing for staging
+api_cpu              = 256
+api_memory           = 512
+worker_cpu           = 256
+worker_memory        = 512

@@ -1,0 +1,133 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/dhparam.pem:/etc/nginx/dhparam.pem:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: always
+    networks:
+      - kwgrowth
+
+  api:
+    image: ${ECR_REGISTRY:-kwgrowth}/api:${IMAGE_TAG:-latest}
+    env_file: ../backend/.env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    networks:
+      - kwgrowth
+
+  celery-worker:
+    image: ${ECR_REGISTRY:-kwgrowth}/api:${IMAGE_TAG:-latest}
+    env_file: ../backend/.env.production
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q default,messaging,automations,webhooks,analytics,imports,shipping,ai
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - kwgrowth
+
+  celery-beat:
+    image: ${ECR_REGISTRY:-kwgrowth}/api:${IMAGE_TAG:-latest}
+    env_file: ../backend/.env.production
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    networks:
+      - kwgrowth
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kwgrowth
+      POSTGRES_USER: kwgrowth
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kwgrowth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+    secrets:
+      - db_password
+    networks:
+      - kwgrowth
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - kwgrowth
+
+volumes:
+  postgres_data:
+  redis_data:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+networks:
+  kwgrowth:
+    driver: bridge

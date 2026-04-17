@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+
+jobs:
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint
+        run: cd backend && ruff check app/ tests/
+      - name: Format check
+        run: cd backend && ruff format --check app/ tests/
+
+  backend-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kwgrowth_test
+          POSTGRES_USER: kwgrowth
+          POSTGRES_PASSWORD: kwgrowth_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Schema is owned by the kwgrowth role (migrations run under this).
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://kwgrowth:kwgrowth_test@localhost:5432/kwgrowth_test
+      # Runtime is app_user (non-superuser, RLS enforced).
+      DATABASE_URL: postgresql+asyncpg://app_user:app_user_ci@localhost:5432/kwgrowth_test
+      REDIS_URL: redis://localhost:6379/0
+      APP_ENV: development
+      APP_SECRET_KEY: ci-secret-key-not-for-production
+      JWT_SECRET_KEY: ci-jwt-secret-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: cd backend && pip install -e ".[dev]"
+
+      # The RLS migrations create the app_user role on upgrade, but that
+      # requires the role to already exist (with a password) before the grant
+      # runs. We set it up here as part of CI bootstrap.
+      - name: Provision runtime role
+        env:
+          PGPASSWORD: kwgrowth_test
+        run: |
+          psql -h localhost -U kwgrowth -d kwgrowth_test <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='app_user') THEN
+              CREATE ROLE app_user LOGIN PASSWORD 'app_user_ci';
+            ELSE
+              ALTER ROLE app_user PASSWORD 'app_user_ci';
+            END IF;
+          END $$;
+          SQL
+
+      - name: Apply migrations
+        run: cd backend && alembic -c alembic/alembic.ini upgrade head
+
+      - name: Run tests
+        run: cd backend && python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  frontend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: cd frontend && npm ci
+      - name: Lint
+        run: cd frontend && npm run lint
+      - name: Type check
+        run: cd frontend && npm run type-check
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-test, frontend-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -t kwgrowth-api backend/
+      - name: Build frontend image
+        run: docker build -t kwgrowth-frontend frontend/

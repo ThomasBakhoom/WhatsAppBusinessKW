@@ -1,0 +1,181 @@
+services:
+  # FastAPI backend
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.docker
+    environment:
+      # Values not sensitive enough to externalize (service-to-service URLs)
+      # Runtime DB connection uses APP_DB_USER (non-superuser, RLS enforced).
+      # POSTGRES_USER (kwgrowth) is reserved for Alembic migrations.
+      - DATABASE_URL=postgresql+asyncpg://${APP_DB_USER:-app_user}:${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}@db:5432/${POSTGRES_DB:-kwgrowth}
+      - MIGRATION_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-kwgrowth}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-kwgrowth}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - kwgrowth
+
+  # Next.js frontend (dev mode)
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000/v1}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:8000/ws}
+    volumes:
+      - ../frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install && npm run dev"
+    networks:
+      - kwgrowth
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - kwgrowth
+    profiles:
+      - production
+
+  # PostgreSQL 16
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kwgrowth}
+      POSTGRES_USER: ${POSTGRES_USER:-kwgrowth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kwgrowth}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kwgrowth
+
+  # Redis 7
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+    networks:
+      - kwgrowth
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - kwgrowth
+
+  # Celery worker
+  celery-worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    environment:
+      # Runtime DB connection uses APP_DB_USER (non-superuser, RLS enforced).
+      # POSTGRES_USER (kwgrowth) is reserved for Alembic migrations.
+      - DATABASE_URL=postgresql+asyncpg://${APP_DB_USER:-app_user}:${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}@db:5432/${POSTGRES_DB:-kwgrowth}
+      - MIGRATION_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-kwgrowth}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-kwgrowth}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+    command: celery -A app.tasks.celery_app worker --loglevel=info -Q default,messaging,automations,webhooks,analytics,imports,shipping,ai
+    networks:
+      - kwgrowth
+
+  # Celery beat (periodic tasks)
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    environment:
+      # Runtime DB connection uses APP_DB_USER (non-superuser, RLS enforced).
+      # POSTGRES_USER (kwgrowth) is reserved for Alembic migrations.
+      - DATABASE_URL=postgresql+asyncpg://${APP_DB_USER:-app_user}:${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}@db:5432/${POSTGRES_DB:-kwgrowth}
+      - MIGRATION_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-kwgrowth}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-kwgrowth}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    networks:
+      - kwgrowth
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  frontend_node_modules:
+
+networks:
+  kwgrowth:
+    driver: bridge

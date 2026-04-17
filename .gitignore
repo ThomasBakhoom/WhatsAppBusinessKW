@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.production
+**/.env.staging
+docker/.env.docker
+docker/.env.docker.local
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker/postgres/data/
+docker/redis/data/
+docker/minio/data/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+coverage/
+
+# Build
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Alembic
+*.pyc
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Secrets (never commit these)
+*.pem
+*.key
+credentials.json
+infra/terraform/*.tfvars
+infra/terraform/.terraform/
+infra/terraform/terraform.tfstate*
+infra/terraform/.terraform.lock.hcl
