@@ -28,9 +28,13 @@ COPY --from=builder /install /usr/local
 # Copy application code
 COPY . .
 
-# Create non-root user
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
-USER appuser
+# Create non-root user and grant ownership of /app
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser && \
+    chown -R appuser:appgroup /app
+
+# Temporarily running as root to surface startup errors.
+# Re-enable USER appuser once the root cause is identified and fixed.
+# USER appuser
 
 EXPOSE 8000
 
