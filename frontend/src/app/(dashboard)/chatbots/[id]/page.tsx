@@ -117,9 +117,9 @@ export default function ChatbotEditorPage() {
 
                   {/* Node content preview */}
                   <div className="mt-2 text-sm">
-                    {node.data.message && <p>{String(node.data.message)}</p>}
-                    {node.data.question && <p>{String(node.data.question)}</p>}
-                    {node.data.seconds && <p>Wait {String(node.data.seconds)}s</p>}
+                    {Boolean(node.data.message) && <p>{String(node.data.message)}</p>}
+                    {Boolean(node.data.question) && <p>{String(node.data.question)}</p>}
+                    {Boolean(node.data.seconds) && <p>Wait {String(node.data.seconds)}s</p>}
                   </div>
 
                   {/* Connections */}
