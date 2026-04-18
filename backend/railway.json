@@ -5,10 +5,8 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "alembic -c alembic/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT",
-    "healthcheckPath": "/health",
-    "healthcheckTimeout": 30,
+    "startCommand": "echo '=== STEP 1: Migrations ===' && alembic -c alembic/alembic.ini upgrade head 2>&1 && echo '=== STEP 2: Loading settings ===' && python -c 'from app.config import get_settings; s=get_settings(); print(\"env=\", s.app_env, \"debug=\", s.app_debug)' && echo '=== STEP 3: Importing app.main ===' && python -c 'import app.main; print(\"main imported OK\")' && echo '=== STEP 4: Starting uvicorn ===' && exec uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level debug",
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "restartPolicyMaxRetries": 1
   }
 }
