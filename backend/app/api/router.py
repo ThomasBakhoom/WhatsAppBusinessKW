@@ -8,6 +8,7 @@ from app.api.v1 import (
     analytics, compliance, campaigns, chatbots, users, media, export,
     channels, templates, catalog, surveys, qrcode,
     glossary, timeline, routing_analytics, instagram_webhooks,
+    platform,
 )
 
 api_router = APIRouter()
@@ -52,6 +53,9 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytic
 api_router.include_router(routing_analytics.router, prefix="/analytics", tags=["Routing & Localization Analytics"])
 api_router.include_router(compliance.router, prefix="/compliance", tags=["Compliance"])
 api_router.include_router(surveys.router, prefix="/surveys", tags=["Surveys & CSAT"])
+
+# Platform Admin (cross-tenant)
+api_router.include_router(platform.router, prefix="/platform", tags=["Platform Admin"])
 
 # Admin & Tools
 api_router.include_router(users.router, prefix="/users", tags=["Users"])

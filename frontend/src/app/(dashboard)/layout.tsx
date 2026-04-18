@@ -12,10 +12,13 @@ import type { MeResponse } from "@/types/api";
 import {
   MessageSquare, Users, BarChart3, Megaphone, Zap, Bot,
   FileText, Globe, LineChart, Settings, LogOut, Moon, Sun,
-  Search, Bell, Menu, X, ChevronRight,
+  Search, Bell, Menu, X, ChevronRight, ShieldCheck,
 } from "lucide-react";
 
-const NAV_ITEMS = [
+type NavItem = { href: string; label: string; icon: typeof MessageSquare; platformAdminOnly?: boolean };
+
+const NAV_ITEMS: NavItem[] = [
+  { href: "/platform", label: "Platform", icon: ShieldCheck, platformAdminOnly: true },
   { href: "/inbox", label: "Inbox", icon: MessageSquare },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/pipeline", label: "Pipeline", icon: BarChart3 },
@@ -117,6 +120,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const user = useAuthStore.getState().user;
   const company = useAuthStore.getState().company;
+  const isPlatformAdmin = user?.roles?.includes("platform_admin") ?? false;
+
+  // Impersonation banner: show if the user jumped in from a platform_admin
+  // session and has stashed tokens to return to. Cleared on logout.
+  const impersonationTargetName =
+    typeof window !== "undefined" ? localStorage.getItem("impersonation_target_name") : null;
+  const canReturnFromImpersonation =
+    typeof window !== "undefined" &&
+    localStorage.getItem("impersonation_origin_access") &&
+    localStorage.getItem("impersonation_origin_refresh");
+
+  function returnFromImpersonation() {
+    const origAccess = localStorage.getItem("impersonation_origin_access");
+    const origRefresh = localStorage.getItem("impersonation_origin_refresh");
+    if (origAccess && origRefresh) {
+      localStorage.setItem("access_token", origAccess);
+      localStorage.setItem("refresh_token", origRefresh);
+    }
+    localStorage.removeItem("impersonation_origin_access");
+    localStorage.removeItem("impersonation_origin_refresh");
+    localStorage.removeItem("impersonation_target_name");
+    window.location.href = "/platform/companies";
+  }
 
   return (
     <div className="flex min-h-screen" style={{ background: "#F8FAFC" }}>
@@ -151,7 +177,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => !item.platformAdminOnly || isPlatformAdmin).map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
             return (
@@ -253,6 +279,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
         </header>
+
+        {/* Impersonation banner */}
+        {canReturnFromImpersonation && (
+          <div
+            className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-white"
+            style={{ background: "linear-gradient(90deg, #F59E0B, #EF4444)" }}
+          >
+            <span>
+              You are viewing{" "}
+              <strong>{impersonationTargetName || "another tenant"}</strong> via
+              platform admin impersonation.
+            </span>
+            <button
+              onClick={returnFromImpersonation}
+              className="rounded-lg bg-white/20 hover:bg-white/30 px-3 py-1 text-xs font-medium transition-colors"
+            >
+              Return to admin
+            </button>
+          </div>
+        )}
 
         {/* Page Content */}
         <div className="flex-1 p-4 lg:p-6">
