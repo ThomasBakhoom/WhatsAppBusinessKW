@@ -1,8 +1,24 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _normalize_postgres_url(url: str) -> str:
+    """Ensure the URL uses the asyncpg driver.
+
+    Managed providers (Railway, Render, Heroku, Neon, Supabase) expose the
+    DATABASE_URL as plain `postgresql://...` for compatibility with sync
+    clients. Our app stack is fully async, so SQLAlchemy needs
+    `postgresql+asyncpg://...`. We transparently upgrade the scheme so any
+    upstream URL Just Works without the operator having to remember.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
 
 
 # Sentinel values that must never reach production.
@@ -43,6 +59,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://kwgrowth:kwgrowth_dev@localhost:5432/kwgrowth"
     database_pool_size: int = 20
     database_max_overflow: int = 10
+
+    @field_validator("database_url")
+    @classmethod
+    def _ensure_asyncpg_driver(cls, v: str) -> str:
+        return _normalize_postgres_url(v)
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

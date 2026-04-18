@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Import all models so Alembic can detect them
 from app.models.base import Base
 from app.models import *  # noqa: F401, F403
-from app.config import get_settings
+from app.config import _normalize_postgres_url, get_settings
 
 config = context.config
 settings = get_settings()
@@ -25,8 +25,12 @@ settings = get_settings()
 # Migrations must run as the schema OWNER (not the runtime app_user, which
 # is a non-superuser and lacks CREATE/ALTER privileges). When
 # MIGRATION_DATABASE_URL is set in the environment, prefer it over the
-# runtime DATABASE_URL.
-migration_url = os.getenv("MIGRATION_DATABASE_URL") or settings.database_url
+# runtime DATABASE_URL. The URL is also normalized so a plain
+# `postgresql://...` from a managed provider (Railway, Render, Heroku)
+# gets the +asyncpg driver appended automatically.
+migration_url = _normalize_postgres_url(
+    os.getenv("MIGRATION_DATABASE_URL") or settings.database_url
+)
 config.set_main_option("sqlalchemy.url", migration_url)
 
 if config.config_file_name is not None:
